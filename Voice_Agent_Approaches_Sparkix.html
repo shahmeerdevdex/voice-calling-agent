@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voice Calling Agent Approaches — Infrastructure Comparison (September 09, 2025)</title>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --card: #131922;
+    --text: #ecf2f8;
+    --muted: #9bb4c9;
+    --accent: #3aa6ff;
+    --accent2: #00d2a8;
+    --border: #1d2633;
+  }
+  html, body { background: var(--bg); color: var(--text); font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif; margin:0; padding:0; }
+  .container { max-width: 1150px; margin: 0 auto; padding: 32px 20px 60px; }
+  h1, h2, h3 { line-height: 1.2; margin: 24px 0 12px; }
+  h1 { font-size: 28px; }
+  h2 { font-size: 22px; color: var(--accent); margin-top: 36px; }
+  h3 { font-size: 18px; color: var(--accent2); }
+  p, li { color: var(--muted); }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; margin: 16px 0; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 6px; }
+  th, td { border: 1px solid var(--border); padding: 10px 12px; vertical-align: top; }
+  th { text-align: left; background: #0f1520; color: #cbe7ff; font-weight: 600; }
+  caption { caption-side: bottom; text-align: left; font-size: 12px; color: var(--muted); padding-top: 8px; }
+  .small { font-size: 13px; }
+  .tag { display:inline-block; border:1px solid var(--border); padding:2px 8px; border-radius: 999px; margin-right:6px; color:#dfeaf3; }
+  a { color: #9ad1ff; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .footnotes ol { margin-top: 4px; }
+  .pill { display:inline-block; background:#0f1a24; border:1px solid var(--border); padding:4px 8px; border-radius:999px; margin: 2px 6px 2px 0; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+</style>
+</head>
+<body>
+  <div class="container">
+    
+<div style="text-align:center; margin-bottom: 20px;">
+  <img src="images.png" alt="Sparkix Technologies Logo" style="max-height:100px;"><br>
+  <h1 style="margin-top:10px; font-size:32px; color:#3aa6ff;">Sparkix Technologies</h1>
+</div>
+<h1>Voice Calling Agent Approaches — Infrastructure Comparison <span class="tag">September 09, 2025</span></h1>
+    <p>This document summarizes four viable architectures for production voice agents and compares coding languages, latency expectations, models, embeddings/knowledge-base options, voice models, and pricing. All prices are public list prices as of September 09, 2025 and may change. Per-minute “ballpark” conversions are provided where the vendor prices per character; see notes for assumptions.</p>
+
+    <div class="card">
+      <h2>Approaches at a glance</h2>
+      <table>
+        <tr>
+          <th>Approach</th>
+          <th>What you get</th>
+          <th>Primary coding languages / SDKs</th>
+          <th>Where the media flows</th>
+        </tr>
+        <tr>
+          <td><strong>1) OpenAI Realtime (end-to-end)</strong></td>
+          <td>Single vendor for STT ⟶ LLM ⟶ TTS with interruptions, barge-in, tools.</td>
+          <td>JavaScript/TypeScript (Agents SDK, WebRTC/WebSocket), Python (Agents SDK), browser WebRTC.</td>
+          <td>Direct WebRTC/WebSocket connection to OpenAI Realtime.</td>
+        </tr>
+        <tr>
+          <td><strong>2) OpenAI Realtime + external STT/TTS</strong></td>
+          <td>Use OpenAI for brain (Realtime or text models) and plug in Google/ElevenLabs/OpenAI voices/Deepgram for STT/TTS.</td>
+          <td>Node/TS, Python; vendor SDKs (Google Cloud, ElevenLabs, Deepgram); WebRTC or telephony edge.</td>
+          <td>Media to chosen STT/TTS; text to OpenAI; synth back via chosen TTS.</td>
+        </tr>
+        <tr>
+          <td><strong>3) Vapi (managed voice agent platform)</strong></td>
+          <td>Orchestrated pipeline (telephony, STT, LLM, TTS, tools) with dashboards, web widget, and phone numbers.</td>
+          <td>Server SDKs in TS, Python, Java, Ruby, C#, Go; client SDKs (Web, iOS, Flutter, RN).</td>
+          <td>Media terminates at Vapi; Vapi fans out to providers you select.</td>
+        </tr>
+        <tr>
+          <td><strong>4) Total Custom Development</strong></td>
+          <td>Build the whole pipeline: telephony/WebRTC, STT, LLM, TTS, turn-taking, tools, logging, redaction.</td>
+          <td>Commonly Node/TS + Python microservices; optional Asterisk/FreeSWITCH/SIP for telephony.</td>
+          <td>Your infra (cloud/on‑prem) + selected provider endpoints.</td>
+        </tr>
+      </table>
+      <caption class="small">SDK references: OpenAI Agents SDK (Realtime) and Vapi SDKs are linked in Sources.</caption>
+    </div>
+
+    <div class="card">
+      <h2>Latency expectations</h2>
+      <table>
+        <tr>
+          <th>Approach</th>
+          <th>STT latency</th>
+          <th>LLM response/TTFT</th>
+          <th>TTS first audio</th>
+          <th>Notes</th>
+        </tr>
+        <tr>
+          <td><strong>1) OpenAI Realtime</strong></td>
+          <td>Built‑in streaming STT (sub‑second typical)</td>
+          <td>Designed for real‑time; WebRTC recommended for lowest end‑to‑end</td>
+          <td>Built‑in streaming voices (sub‑second typical)</td>
+          <td>Azure OpenAI reports <span class="mono">&lt;300ms</span> median round‑trip in tuned setups; expect 300–1000ms end‑to‑end depending on network/tooling.</td>
+        </tr>
+        <tr>
+          <td><strong>2) Realtime + external STT/TTS</strong></td>
+          <td>Deepgram streaming STT claims sub‑300ms; Google STT v2 standard billed per‑second</td>
+          <td>OpenAI text models or Realtime for thinking</td>
+          <td>ElevenLabs low‑latency tiers; Deepgram Aura live TTS via WS; Google TTS streaming</td>
+          <td>Edge placement (close to telephony region) matters most; streaming partials recommended.</td>
+        </tr>
+        <tr>
+          <td><strong>3) Vapi</strong></td>
+          <td>Provider‑selectable</td>
+          <td>Provider‑selectable</td>
+          <td>Provider‑selectable</td>
+          <td>Docs state “sub‑600ms response times” with natural turn‑taking (depends on chosen providers and routing).</td>
+        </tr>
+        <tr>
+          <td><strong>4) Custom</strong></td>
+          <td>Depends on STT (e.g., Deepgram/Google) and network</td>
+          <td>Depends on model tier and token budgets</td>
+          <td>Depends on TTS engine and bitrate</td>
+          <td>With careful streaming + edge POPs, 400–900ms E2E is achievable; design for barge‑in.</td>
+        </tr>
+      </table>
+      <caption class="small">These targets assume streaming in/out, short utterances, and no heavy tool calls. See sources for vendor latency notes.</caption>
+    </div>
+
+    <div class="card">
+      <h2>Models & voice options</h2>
+      <table>
+        <tr>
+          <th>Approach</th>
+          <th>LLM models (examples)</th>
+          <th>STT models (examples)</th>
+          <th>TTS / Voice models (examples)</th>
+          <th>Embeddings / KB</th>
+        </tr>
+        <tr>
+          <td><strong>1) OpenAI Realtime</strong></td>
+          <td><span class="mono">gpt-realtime</span> (multimodal), or hybrid with <span class="mono">gpt‑4o mini</span>, <span class="mono">gpt‑4.1</span>, <span class="mono">gpt‑5</span> for tool calls/offline tasks.</td>
+          <td>Built‑in streaming STT.</td>
+          <td>Built‑in voices: alloy, ash, ballad, coral, echo, fable, nova, onyx, sage, shimmer, verse.</td>
+          <td>OpenAI File Search (vector storage) or direct embeddings (<span class="mono">text‑embedding‑3‑small/large</span>).</td>
+        </tr>
+        <tr>
+          <td><strong>2) Realtime + external</strong></td>
+          <td>OpenAI text models (<span class="mono">gpt‑4o/mini</span>, <span class="mono">gpt‑4.1</span>, <span class="mono">gpt‑5</span>) or <span class="mono">gpt‑realtime</span> for agentic control.</td>
+          <td>Google STT v2 Standard; Deepgram Nova‑3 (mono/multilingual).</td>
+          <td>Google TTS (Chirp 3: HD, Neural2, WaveNet); ElevenLabs (v2/v2.5 Flash/Turbo + cloning); Deepgram Aura‑1/Aura‑2; OpenAI voices.</td>
+          <td>OpenAI File Search or own vector DB with OpenAI embeddings.</td>
+        </tr>
+        <tr>
+          <td><strong>3) Vapi</strong></td>
+          <td>Pluggable: OpenAI/Anthropic/etc. via Vapi configs.</td>
+          <td>Pluggable: Deepgram, Google, etc.</td>
+          <td>Pluggable: ElevenLabs, Deepgram, OpenAI, others.</td>
+          <td>Bring‑your‑own RAG (OpenAI File Search or external vector DB).</td>
+        </tr>
+        <tr>
+          <td><strong>4) Custom</strong></td>
+          <td>Any—OpenAI recommended for fastest path (<span class="mono">gpt‑4o/mini</span>, <span class="mono">gpt‑5</span>).</td>
+          <td>Any—Deepgram/Google common choices.</td>
+          <td>Any—OpenAI voices, ElevenLabs, Deepgram, Google.</td>
+          <td>Own vector DB (pgvector/Pinecone/etc.) or OpenAI File Search.</td>
+        </tr>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Pricing (official units)</h2>
+      <table>
+        <tr>
+          <th>Component</th>
+          <th>Public list price (unit)</th>
+          <th>Notes</th>
+        </tr>
+        <tr>
+          <td><strong>OpenAI Realtime — Text tokens</strong></td>
+          <td class="mono">$4.00 / 1M input tokens · $16.00 / 1M output tokens</td>
+          <td>Model family: <span class="mono">gpt-realtime</span>.</td>
+        </tr>
+        <tr>
+          <td><strong>OpenAI Realtime — Audio tokens</strong></td>
+          <td class="mono">$32.00 / 1M input audio tokens · $64.00 / 1M output audio tokens</td>
+          <td>For live speech I/O on Realtime.</td>
+        </tr>
+        <tr>
+          <td><strong>OpenAI 4o‑mini (text)</strong></td>
+          <td class="mono">$0.60 / 1M input · $2.40 / 1M output</td>
+          <td>Useful for cheaper reasoning outside live audio.</td>
+        </tr>
+        <tr>
+          <td><strong>OpenAI File Search (vector storage)</strong></td>
+          <td class="mono">$0.10 / GB / day (first GB free)</td>
+          <td>Store parsed/embedded chunks for RAG.</td>
+        </tr>
+        <tr>
+          <td><strong>OpenAI Embeddings</strong></td>
+          <td class="mono">text‑embedding‑3‑small: $0.00002 / 1K tokens · text‑embedding‑3‑large: $0.00013 / 1K tokens</td>
+          <td>Direct embeddings when managing your own vector DB.</td>
+        </tr>
+        <tr>
+          <td><strong>Google Cloud STT (v2 Standard)</strong></td>
+          <td class="mono">$0.016 / minute (billed per‑second)</td>
+          <td>Tiered discounts at very high volumes.</td>
+        </tr>
+        <tr>
+          <td><strong>Google Cloud TTS</strong></td>
+          <td class="mono">Chirp&nbsp;3:HD $30 / 1M chars · Neural2 $16 / 1M · WaveNet $4 / 1M · Standard $4 / 1M</td>
+          <td>“Instant custom voice” $60 / 1M chars.</td>
+        </tr>
+        <tr>
+          <td><strong>ElevenLabs TTS (plans)</strong></td>
+          <td class="mono">Creator ≈ $0.15/min · Pro ≈ $0.12/min · Business ≈ $0.06/min (overage)</td>
+          <td>Credits convert to minutes; low‑latency tiers on Business.</td>
+        </tr>
+        <tr>
+          <td><strong>Deepgram STT — Streaming</strong></td>
+          <td class="mono">Nova‑3 (mono) $0.0077 / minute (PAYG)</td>
+          <td>Sub‑300ms streaming latency claim; volume discounts.</td>
+        </tr>
+        <tr>
+          <td><strong>Deepgram TTS</strong></td>
+          <td class="mono">Aura‑1 $0.015 / 1K chars · Aura‑2 $0.030 / 1K chars</td>
+          <td>Live TTS over WebSocket.</td>
+        </tr>
+        <tr>
+          <td><strong>Vapi platform</strong></td>
+          <td class="mono">$0.05 / minute (prorated per‑second) + provider pass‑through</td>
+          <td>Volume discounts available.</td>
+        </tr>
+        <tr>
+          <td><strong>Telephony (reference)</strong></td>
+          <td class="mono">Varies by carrier/region (e.g., US inbound ~0.0085–0.022 $/min; outbound ~0.013–0.030 $/min)</td>
+          <td>Separate from AI costs; choose Twilio/Telnyx/Vonage/SIP.</td>
+        </tr>
+      </table>
+      <caption class="small">Prices are vendor list prices; taxes not included. See Sources for links.</caption>
+    </div>
+
+    <div class="card">
+      <h2>Quick estimates (character-based TTS → $/min)</h2>
+      <p class="small">Assumption: 160 words/min, ~5 characters/word ⇒ ~800 chars/min of agent speech. Convert TTS price per 1K chars to per‑minute: <span class="mono">$/min ≈ (price_per_1k_chars / 1000) × 800</span>.</p>
+      <table>
+        <tr>
+          <th>Engine</th>
+          <th>List price</th>
+          <th>Ballpark $/min (≈800 chars)</th>
+        </tr>
+        <tr>
+          <td>Deepgram Aura‑1</td>
+          <td class="mono">$0.015 / 1K chars</td>
+          <td class="mono">≈ $0.012 / min</td>
+        </tr>
+        <tr>
+          <td>Deepgram Aura‑2</td>
+          <td class="mono">$0.030 / 1K chars</td>
+          <td class="mono">≈ $0.024 / min</td>
+        </tr>
+        <tr>
+          <td>Google TTS Neural2</td>
+          <td class="mono">$16 / 1M chars</td>
+          <td class="mono">≈ $0.0128 / min</td>
+        </tr>
+        <tr>
+          <td>Google TTS Chirp 3: HD</td>
+          <td class="mono">$30 / 1M chars</td>
+          <td class="mono">≈ $0.024 / min</td>
+        </tr>
+        <tr>
+          <td>Google TTS Standard/WaveNet</td>
+          <td class="mono">$4 / 1M chars</td>
+          <td class="mono">≈ $0.0032 / min</td>
+        </tr>
+        <tr>
+          <td>ElevenLabs (overage)</td>
+          <td class="mono">$0.06–$0.15 / min</td>
+          <td class="mono">As listed (plan‑dependent)</td>
+        </tr>
+      </table>
+      <caption class="small">These ignore LLM/STT/telephony. Add STT (e.g., Google $0.016/min or Deepgram $0.0077/min), plus your LLM token cost and any platform fee (e.g., Vapi $0.05/min).</caption>
+    </div>
+
+    <div class="card">
+      <h2>Pros & when to use</h2>
+      <table>
+        <tr><th>Approach</th><th>Best for</th><th>Pros</th><th>Trade‑offs</th></tr>
+        <tr>
+          <td><strong>OpenAI Realtime</strong></td>
+          <td>Fastest path to “talking agent” with minimal moving parts.</td>
+          <td>Simplest media graph; strong interruption handling; one bill.</td>
+          <td>Token‑based audio pricing (not per‑minute); fewer knobs if you need a specific STT/TTS vendor or custom voices.</td>
+        </tr>
+        <tr>
+          <td><strong>Realtime + external</strong></td>
+          <td>Keeping OpenAI for reasoning while standardizing on a specific STT/TTS (compliance, brand voice).</td>
+          <td>Best‑of‑breed components; easier to swap pieces.</td>
+          <td>More integration work; separate bills; monitor cross‑vendor latency.</td>
+        </tr>
+        <tr>
+          <td><strong>Vapi</strong></td>
+          <td>Teams that want speed, dashboards, phone numbers, web widget, and low‑code control.</td>
+          <td>One platform for orchestration and observability; phone + web out of the box.</td>
+          <td>Platform fee (5¢/min) on top of provider costs; some vendor‑specific features not exposed.</td>
+        </tr>
+        <tr>
+          <td><strong>Custom</strong></td>
+          <td>Strict data residency, edge media, or highly specialized call logic.</td>
+          <td>Full control over routing, caching, redaction, and cost tuning.</td>
+          <td>Highest upfront build & SRE burden; you own monitoring and scaling.</td>
+        </tr>
+      </table>
+    </div>
+
+    <div class="card footnotes">
+      <h2>Sources (pricing, models, latency)</h2>
+      <ol class="small">
+        <li>OpenAI API pricing (Realtime text/audio rates, 4o‑mini, File Search storage): <a href="https://openai.com/api/pricing/">openai.com/api/pricing</a></li>
+        <li>OpenAI Realtime docs & Agents SDK (WebRTC/WebSocket): <a href="https://platform.openai.com/docs/guides/realtime">platform.openai.com/docs/guides/realtime</a>, <a href="https://openai.github.io/openai-agents-js/guides/voice-agents/quickstart/">Agents SDK Quickstart</a></li>
+        <li>OpenAI voices (built‑in list & TTS guide): <a href="https://platform.openai.com/docs/guides/text-to-speech/">OpenAI TTS Guide</a>; forum announcements of new voices.</li>
+        <li>Embeddings pricing: OpenAI news (“New embedding models …”): <a href="https://openai.com/index/new-embedding-models-and-api-updates/">openai.com/index/new-embedding-models-and-api-updates/</a></li>
+        <li>Google Cloud TTS pricing (Chirp 3: HD, Neural2, WaveNet, Standard): <a href="https://cloud.google.com/text-to-speech/pricing">cloud.google.com/text-to-speech/pricing</a></li>
+        <li>Google Cloud STT v2 pricing (per‑minute tiers): <a href="https://cloud.google.com/speech-to-text/pricing">cloud.google.com/speech-to-text/pricing</a></li>
+        <li>ElevenLabs pricing (credits → minutes, low‑latency tiers): <a href="https://elevenlabs.io/pricing">elevenlabs.io/pricing</a> and <a href="https://elevenlabs.io/pricing/api">elevenlabs.io/pricing/api</a></li>
+        <li>Deepgram pricing (Voice Agent API, STT Nova‑3, TTS Aura): <a href="https://deepgram.com/pricing">deepgram.com/pricing</a></li>
+        <li>Vapi docs (sub‑600ms, SDKs) and billing (5¢/min): <a href="https://docs.vapi.ai/quickstart/introduction">docs.vapi.ai/quickstart/introduction</a>, <a href="https://vapi.mintlify.app/billing/estimating-costs">vapi.mintlify.app/billing/estimating-costs</a>, <a href="https://docs.vapi.ai/resources">docs.vapi.ai/resources</a></li>
+        <li>Telephony reference pricing: Twilio US Voice pricing: <a href="https://www.twilio.com/voice/pricing/us">twilio.com/voice/pricing/us</a> and market overviews (e.g., Capterra roundup).</li>
+        <li>Latency references: Azure OpenAI Realtime WebRTC guide + performance notes: <a href="https://learn.microsoft.com/en-us/azure/ai-foundry/openai/how-to/realtime-audio-webrtc">Microsoft Learn: Realtime via WebRTC</a>; sub‑300ms median example: <a href="https://thecodepoet.net/blog/realtime-api/">Azure OpenAI Realtime deep dive</a>; Deepgram streaming “under 300ms” claim on pricing page.</li>
+      </ol>
+    </div>
+  </div>
+</body>
+</html>
